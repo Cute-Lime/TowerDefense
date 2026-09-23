@@ -435,6 +435,7 @@ private struct BattleView: View {
                         returnHome()
                     }
                 )
+                .zIndex(10)
             }
 
             if gameState.isBossActive {
@@ -444,7 +445,7 @@ private struct BattleView: View {
                         health: gameState.bossHealth,
                         maxHealth: GameState.bossMaxHealth
                     )
-                    .padding(.top, 66)
+                    .padding(.top, 96)
 
                     Spacer()
                 }
@@ -470,6 +471,7 @@ private struct BattleView: View {
                         returnHome()
                     }
                 )
+                .zIndex(10)
             }
         }
     }
