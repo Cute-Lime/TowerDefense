@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @main
-struct FirstAppApp: App {
+struct TowerDefenseApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {

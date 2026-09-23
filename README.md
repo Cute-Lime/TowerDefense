@@ -32,7 +32,7 @@
    ```bash
    git clone https://github.com/Cute-Lime/TowerDefense.git
    ```
-3. 在 Xcode 中開啟 `FirstApp.xcodeproj`。
+3. 在 Xcode 中開啟 `TowerDefense.xcodeproj`。
 4. 選擇適合的 iOS 模擬器（強烈建議使用**橫向**模式的 iPhone 15 Pro 或以上機型）。
 5. 點擊左上角的 ▶️ Play 按鈕或使用快捷鍵 `Cmd + R` 建置並執行遊戲！
 
