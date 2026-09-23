@@ -1,3 +1,4 @@
+import Foundation
 import SpriteKit
 import SwiftUI
 
@@ -39,6 +40,7 @@ struct ContentView: View {
                     upgradeEconomy: upgradeEconomy,
                     togglePause: togglePause,
                     restart: restartCurrentGame,
+                    nextLevel: startNextLevel,
                     returnHome: returnHome
                 )
             }
@@ -71,6 +73,11 @@ struct ContentView: View {
 
     private func restartCurrentGame() {
         startGame(level: gameState.selectedLevel)
+    }
+
+    private func startNextLevel() {
+        guard let nextLevel = gameState.selectedLevel.nextLevel else { return }
+        startGame(level: nextLevel)
     }
 
     private func togglePause() {
@@ -377,6 +384,7 @@ private struct BattleView: View {
     let upgradeEconomy: () -> Void
     let togglePause: () -> Void
     let restart: () -> Void
+    let nextLevel: () -> Void
     let returnHome: () -> Void
 
     var body: some View {
@@ -406,6 +414,7 @@ private struct BattleView: View {
 
                 SummonBar(
                     availableMoney: gameState.playerMoney,
+                    cooldowns: gameState.summonCooldowns,
                     isPaused: gameState.isPaused,
                     isFinished: gameState.isFinished,
                     summon: summon
@@ -428,12 +437,33 @@ private struct BattleView: View {
                 )
             }
 
+            if gameState.isBossActive {
+                VStack {
+                    BossHealthBar(
+                        name: GameState.bossName,
+                        health: gameState.bossHealth,
+                        maxHealth: GameState.bossMaxHealth
+                    )
+                    .padding(.top, 66)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 18)
+                .allowsHitTesting(false)
+            }
+
             if let result = gameState.result {
+                let nextLevel = result == .victory ? gameState.selectedLevel.nextLevel : nil
                 ResultOverlay(
                     result: result,
+                    nextLevelTitle: nextLevel?.title,
                     restart: {
                         AudioManager.shared.play(.buttonTap)
                         restart()
+                    },
+                    nextLevel: {
+                        AudioManager.shared.play(.buttonTap)
+                        self.nextLevel()
                     },
                     returnHome: {
                         AudioManager.shared.play(.buttonTap)
@@ -590,6 +620,7 @@ private struct EconomyUpgradeButton: View {
 
 private struct SummonBar: View {
     let availableMoney: Int
+    let cooldowns: [UnitType: TimeInterval]
     let isPaused: Bool
     let isFinished: Bool
     let summon: (UnitType) -> Void
@@ -597,15 +628,23 @@ private struct SummonBar: View {
     var body: some View {
         HStack(spacing: 12) {
             ForEach(UnitType.allCases) { type in
+                let cooldownRemaining = cooldowns[type] ?? 0
+                let isCoolingDown = cooldownRemaining > 0
+                let isAvailable = availableMoney >= type.cost && !isCoolingDown
+
                 Button {
                     AudioManager.shared.play(.buttonTap)
                     summon(type)
                 } label: {
-                    SummonButtonLabel(type: type, isAffordable: availableMoney >= type.cost)
+                    SummonButtonLabel(
+                        type: type,
+                        isAffordable: availableMoney >= type.cost,
+                        cooldownRemaining: cooldownRemaining
+                    )
                 }
                 .buttonStyle(.plain)
-                .disabled(availableMoney < type.cost || isPaused || isFinished)
-                .accessibilityLabel("召喚\(type.name)，花費 \(type.cost) 金錢")
+                .disabled(!isAvailable || isPaused || isFinished)
+                .accessibilityLabel(isCoolingDown ? "\(type.name)冷卻中" : "召喚\(type.name)，花費 \(type.cost) 金錢")
             }
         }
         .padding(10)
@@ -627,6 +666,11 @@ private struct SummonBar: View {
 private struct SummonButtonLabel: View {
     let type: UnitType
     let isAffordable: Bool
+    let cooldownRemaining: TimeInterval
+
+    private var isCoolingDown: Bool {
+        cooldownRemaining > 0
+    }
 
     var body: some View {
         VStack(spacing: 5) {
@@ -634,14 +678,19 @@ private struct SummonButtonLabel: View {
                 .font(.title2)
             Text(type.name)
                 .font(GameFont.display(14))
-            Label("\(type.cost)", systemImage: "centsign.circle.fill")
-                .font(GameFont.number(13))
+            if isCoolingDown {
+                Text("冷卻")
+                    .font(GameFont.display(13))
+            } else {
+                Label("\(type.cost)", systemImage: "centsign.circle.fill")
+                    .font(GameFont.number(13))
+            }
         }
-        .foregroundStyle(isAffordable ? Color(red: 0.98, green: 0.92, blue: 0.75) : Color.white.opacity(0.35))
+        .foregroundStyle(isAffordable && !isCoolingDown ? Color(red: 0.98, green: 0.92, blue: 0.75) : Color.white.opacity(0.35))
         .frame(minWidth: 108)
         .padding(.vertical, 8)
         .background(
-            isAffordable ?
+            isAffordable && !isCoolingDown ?
             LinearGradient(
                 colors: [Color(red: 0.22, green: 0.38, blue: 0.62), Color(red: 0.12, green: 0.24, blue: 0.42)],
                 startPoint: .top,
@@ -661,6 +710,82 @@ private struct SummonButtonLabel: View {
                     lineWidth: 1
                 )
         )
+        .overlay {
+            if isCoolingDown {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.black.opacity(0.45))
+                Text(String(format: "%.1f", cooldownRemaining))
+                    .font(GameFont.number(26))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.95), radius: 4, x: 0, y: 2)
+            }
+        }
+    }
+}
+
+private struct BossHealthBar: View {
+    let name: String
+    let health: CGFloat
+    let maxHealth: CGFloat
+
+    private var healthRatio: CGFloat {
+        guard maxHealth > 0 else { return 0 }
+        return min(1, max(0, health / maxHealth))
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 10) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.48, blue: 0.18))
+
+                Text(name)
+                    .font(GameFont.display(15))
+                    .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.58))
+
+                Text("\(Int(health)) / \(Int(maxHealth))")
+                    .font(GameFont.number(14))
+                    .foregroundStyle(.white)
+            }
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(Color.black.opacity(0.65))
+
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.0, green: 0.20, blue: 0.12),
+                                    Color(red: 0.55, green: 0.02, blue: 0.06)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: proxy.size.width * healthRatio)
+
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(Color(red: 1.0, green: 0.78, blue: 0.30), lineWidth: 1.5)
+                }
+            }
+            .frame(height: 14)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 460)
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.20, green: 0.04, blue: 0.06), Color(red: 0.08, green: 0.02, blue: 0.03)],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(red: 1.0, green: 0.72, blue: 0.24), lineWidth: 2))
+        .shadow(color: Color.red.opacity(0.45), radius: 12, x: 0, y: 4)
     }
 }
 
@@ -722,7 +847,9 @@ private struct PauseOverlay: View {
 
 private struct ResultOverlay: View {
     let result: MatchResult
+    let nextLevelTitle: String?
     let restart: () -> Void
+    let nextLevel: () -> Void
     let returnHome: () -> Void
 
     var body: some View {
@@ -758,6 +885,27 @@ private struct ResultOverlay: View {
                                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(red: 0.85, green: 0.72, blue: 0.42), lineWidth: 1.5))
                         }
                         .buttonStyle(.plain)
+
+                        if nextLevelTitle != nil {
+                            Button(action: nextLevel) {
+                                Text("下一關")
+                                    .font(GameFont.display(18))
+                                    .foregroundStyle(Color(red: 0.98, green: 0.92, blue: 0.70))
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [Color(red: 0.25, green: 0.42, blue: 0.24), Color(red: 0.13, green: 0.28, blue: 0.16)],
+                                            startPoint: .top,
+                                            endPoint: .bottom
+                                        ),
+                                        in: RoundedRectangle(cornerRadius: 10)
+                                    )
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(red: 0.85, green: 0.72, blue: 0.42), lineWidth: 1.5))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("前往下一關")
+                        }
 
                         Button(action: returnHome) {
                             Text("返回首頁")

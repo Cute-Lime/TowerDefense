@@ -104,16 +104,88 @@ final class BattleUnitNode: SKNode {
     }
 }
 
+final class BossUnitNode: SKNode {
+    let maxHealth: CGFloat
+    var hitPoints: CGFloat
+    var attackCooldown: TimeInterval = 0
+    var isDying = false
+
+    private let bodySprite: SKSpriteNode
+
+    init(maxHealth: CGFloat) {
+        self.maxHealth = maxHealth
+        hitPoints = maxHealth
+
+        let texture = SKTexture(imageNamed: "enemy_boss")
+        bodySprite = SKSpriteNode(texture: texture, size: CGSize(width: 158, height: 158))
+        bodySprite.position.y = 20
+
+        super.init()
+
+        let shadow = SKShapeNode(ellipseOf: CGSize(width: 128, height: 28))
+        shadow.fillColor = .black.withAlphaComponent(0.32)
+        shadow.strokeColor = .clear
+        shadow.position.y = -48
+        addChild(shadow)
+
+        addChild(bodySprite)
+
+        let bob = SKAction.sequence([
+            .moveBy(x: 0, y: 4, duration: 0.9),
+            .moveBy(x: 0, y: -4, duration: 0.9)
+        ])
+        bodySprite.run(.repeatForever(bob), withKey: "bossIdle")
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        nil
+    }
+
+    func receiveDamage(_ amount: CGFloat) {
+        guard !isDying else { return }
+        hitPoints = max(0, hitPoints - amount)
+
+        let flash = SKAction.sequence([
+            .colorize(with: .white, colorBlendFactor: 0.65, duration: 0.05),
+            .colorize(withColorBlendFactor: 0, duration: 0.12)
+        ])
+        bodySprite.run(flash, withKey: "bossHit")
+
+        if hitPoints == 0 {
+            isDying = true
+            bodySprite.removeAllActions()
+            run(.sequence([
+                .group([
+                    .scale(to: 1.35, duration: 0.18),
+                    .fadeOut(withDuration: 0.28)
+                ]),
+                .removeFromParent()
+            ]))
+        }
+    }
+
+    func playAttack() {
+        bodySprite.run(.sequence([
+            .scale(to: 1.18, duration: 0.10),
+            .scale(to: 1.0, duration: 0.14)
+        ]), withKey: "bossAttack")
+    }
+}
+
 final class BattleScene: SKScene {
     weak var gameState: GameState?
     private let level: GameLevel
     private var lastUpdateTime: TimeInterval = 0
     private var enemySpawnCountdown: TimeInterval = 2.8
+    private var bossSpawnCountdown: TimeInterval = 7.0
+    private var hasSummonedBoss = false
     private var incomeAccumulator: TimeInterval = 0
     private var enemyTargetUnit: UnitType?
+    private var bossNode: BossUnitNode?
 
-    // Road length cut in half for faster, more intense gameplay!
-    private let worldWidth: CGFloat = 1_400
+    private var worldWidth: CGFloat {
+        level == .citadel ? 1_800 : 1_400
+    }
     private let battleCamera = SKCameraNode()
     private var lastCentroidX: CGFloat?
 
@@ -216,6 +288,7 @@ final class BattleScene: SKScene {
 
         let delta = min(currentTime - lastUpdateTime, 0.1)
         lastUpdateTime = currentTime
+        gameState.tickSummonCooldowns(seconds: delta)
         incomeAccumulator += delta
         if incomeAccumulator >= 1 {
             gameState.addIncome(seconds: incomeAccumulator)
@@ -228,7 +301,15 @@ final class BattleScene: SKScene {
             enemySpawnCountdown = Double.random(in: level.enemySpawnInterval)
         }
 
+        if level == .citadel && !hasSummonedBoss {
+            bossSpawnCountdown -= delta
+            if bossSpawnCountdown <= 0 {
+                summonBoss()
+            }
+        }
+
         updateUnits(delta: delta)
+        updateBoss(delta: delta)
         updateCastleHealthBars()
     }
 
@@ -340,7 +421,7 @@ final class BattleScene: SKScene {
         healthFill.zPosition = 4
         addChild(healthFill)
 
-        let hpLabel = SKLabelNode(text: "\(Int(GameState.castleHealth)) / \(Int(GameState.castleHealth))")
+        let hpLabel = SKLabelNode(text: "")
         hpLabel.fontName = "Cinzel-Bold"
         hpLabel.fontSize = 14
         hpLabel.fontColor = .white
@@ -361,19 +442,19 @@ final class BattleScene: SKScene {
     private func updateCastleHealthBars() {
         guard let gameState else { return }
 
-        let maxHP = GameState.castleHealth
-
+        let playerMaxHP = GameState.castleHealth
         let playerHP = max(0, gameState.playerCastleHealth)
-        let playerPct = playerHP / maxHP
+        let playerPct = playerHP / playerMaxHP
         playerCastleHealthFill?.xScale = playerPct
         playerCastleHealthFill?.position.x = playerCastleX - (50 * (1 - playerPct))
-        playerCastleHPText?.text = "\(Int(playerHP)) / \(Int(maxHP))"
+        playerCastleHPText?.text = "\(Int(playerHP))"
 
+        let enemyMaxHP = level.enemyCastleHealth
         let enemyHP = max(0, gameState.enemyCastleHealth)
-        let enemyPct = enemyHP / maxHP
+        let enemyPct = enemyHP / enemyMaxHP
         enemyCastleHealthFill?.xScale = enemyPct
         enemyCastleHealthFill?.position.x = enemyCastleX - (50 * (1 - enemyPct))
-        enemyCastleHPText?.text = "\(Int(enemyHP)) / \(Int(maxHP))"
+        enemyCastleHPText?.text = "\(Int(enemyHP))"
     }
 
     private func addUnit(_ type: UnitType, faction: Faction) {
@@ -384,6 +465,21 @@ final class BattleScene: SKScene {
         )
         unit.zPosition = 2
         addChild(unit)
+    }
+
+    private func summonBoss() {
+        guard let gameState, bossNode == nil else { return }
+
+        hasSummonedBoss = true
+        gameState.activateBoss()
+
+        let boss = BossUnitNode(maxHealth: GameState.bossMaxHealth)
+        boss.position = CGPoint(x: enemyCastleX - 135, y: laneY + 8)
+        boss.zPosition = 2.2
+        bossNode = boss
+        addChild(boss)
+
+        showBossArrivalEffect(at: boss.position)
     }
 
     private func summonEnemy() {
@@ -424,7 +520,14 @@ final class BattleScene: SKScene {
         for unit in units {
             unit.attackCooldown = max(0, unit.attackCooldown - delta)
 
-            if let target = nearestOpponent(to: unit) {
+            if unit.faction == .player, let boss = nearestBossOrNil(to: unit) {
+                let distance = abs(boss.position.x - unit.position.x)
+                if distance <= unit.type.attackRange + 76 {
+                    attackBoss(with: unit, boss: boss)
+                } else {
+                    move(unit, delta: delta)
+                }
+            } else if let target = nearestOpponent(to: unit) {
                 let distance = abs(target.position.x - unit.position.x)
                 if distance <= unit.type.attackRange + 40 {
                     attack(unit, target: target)
@@ -437,6 +540,18 @@ final class BattleScene: SKScene {
                 move(unit, delta: delta)
             }
         }
+    }
+
+    private func nearestBossOrNil(to unit: BattleUnitNode) -> BossUnitNode? {
+        guard let bossNode, !bossNode.isDying else { return nil }
+
+        if let nearestUnit = nearestOpponent(to: unit) {
+            let bossDistance = abs(bossNode.position.x - unit.position.x)
+            let unitDistance = abs(nearestUnit.position.x - unit.position.x)
+            return bossDistance < unitDistance ? bossNode : nil
+        }
+
+        return bossNode
     }
 
     private func nearestOpponent(to unit: BattleUnitNode) -> BattleUnitNode? {
@@ -455,6 +570,22 @@ final class BattleScene: SKScene {
         unit.position.x += direction * unit.type.movementSpeed * delta
         let walkingScale: CGFloat = Int((lastUpdateTime * 8).rounded()) % 2 == 0 ? 1.03 : 0.98
         unit.xScale = walkingScale
+    }
+
+    private func updateBoss(delta: TimeInterval) {
+        guard let boss = bossNode, !boss.isDying else { return }
+        boss.attackCooldown = max(0, boss.attackCooldown - delta)
+
+        let playerUnits = unitNodes(for: .player)
+        let targetsInRange = playerUnits.filter { abs($0.position.x - boss.position.x) <= 124 }
+        if !targetsInRange.isEmpty {
+            bossAreaAttack(boss, targets: targetsInRange)
+        } else if abs(boss.position.x - playerCastleX) <= 132 {
+            bossAttackCastle(boss)
+        } else {
+            boss.position.x -= 10 * delta
+            boss.xScale = Int((lastUpdateTime * 4).rounded()) % 2 == 0 ? 1.01 : 0.99
+        }
     }
 
     private func playSoundForUnitAttack(_ type: UnitType) {
@@ -480,6 +611,20 @@ final class BattleScene: SKScene {
         showHit(at: target.position)
     }
 
+    private func attackBoss(with attacker: BattleUnitNode, boss: BossUnitNode) {
+        guard attacker.attackCooldown == 0, !boss.isDying, let gameState else { return }
+        attacker.attackCooldown = attacker.type.attackInterval
+        attacker.playAttack()
+        boss.receiveDamage(attacker.type.damage)
+        gameState.damageBoss(amount: attacker.type.damage)
+        playSoundForUnitAttack(attacker.type)
+        showAttackEffect(from: attacker, to: boss.position)
+        showHit(at: CGPoint(x: boss.position.x, y: boss.position.y + 36))
+        if boss.isDying {
+            bossNode = nil
+        }
+    }
+
     private func canAttackCastle(_ unit: BattleUnitNode) -> Bool {
         let castleX = unit.faction == .player ? enemyCastleX : playerCastleX
         return abs(unit.position.x - castleX) <= unit.type.attackRange + 42
@@ -495,6 +640,31 @@ final class BattleScene: SKScene {
         let targetPosition = CGPoint(x: castleX, y: laneY + 30)
         showAttackEffect(from: unit, to: targetPosition)
         showHit(at: targetPosition)
+    }
+
+    private func bossAreaAttack(_ boss: BossUnitNode, targets: [BattleUnitNode]) {
+        guard boss.attackCooldown == 0 else { return }
+        boss.attackCooldown = 2.8
+        boss.playAttack()
+
+        let impactCenter = CGPoint(x: boss.position.x - 58, y: laneY + 8)
+        showBossAreaEffect(at: impactCenter, radius: 118)
+        AudioManager.shared.play(.shieldAttack)
+
+        for target in targets where abs(target.position.x - impactCenter.x) <= 118 {
+            target.receiveDamage(68)
+            showHit(at: target.position)
+        }
+    }
+
+    private func bossAttackCastle(_ boss: BossUnitNode) {
+        guard boss.attackCooldown == 0, let gameState else { return }
+        boss.attackCooldown = 3.0
+        boss.playAttack()
+        gameState.damageCastle(of: .player, amount: 85)
+        showBossAreaEffect(at: CGPoint(x: playerCastleX, y: laneY + 30), radius: 130)
+        showHit(at: CGPoint(x: playerCastleX, y: laneY + 40))
+        AudioManager.shared.play(.shieldAttack)
     }
 
     private func showAttackEffect(from attacker: BattleUnitNode, to target: CGPoint) {
@@ -571,6 +741,40 @@ final class BattleScene: SKScene {
         addChild(hit)
         hit.run(.sequence([
             .group([.moveBy(x: 0, y: 22, duration: 0.2), .fadeOut(withDuration: 0.2)]),
+            .removeFromParent()
+        ]))
+    }
+
+    private func showBossArrivalEffect(at position: CGPoint) {
+        let marker = SKLabelNode(text: "魔王降臨")
+        marker.fontName = "Cinzel-Black"
+        marker.fontSize = 28
+        marker.fontColor = SKColor(red: 1.0, green: 0.78, blue: 0.34, alpha: 1)
+        marker.position = CGPoint(x: position.x, y: position.y + 115)
+        marker.zPosition = 10
+        addChild(marker)
+
+        showBossAreaEffect(at: position, radius: 150)
+        marker.run(.sequence([
+            .group([.moveBy(x: 0, y: 24, duration: 0.9), .fadeOut(withDuration: 0.9)]),
+            .removeFromParent()
+        ]))
+    }
+
+    private func showBossAreaEffect(at position: CGPoint, radius: CGFloat) {
+        let ring = SKShapeNode(circleOfRadius: radius)
+        ring.fillColor = SKColor(red: 0.88, green: 0.05, blue: 0.04, alpha: 0.20)
+        ring.strokeColor = SKColor(red: 1.0, green: 0.36, blue: 0.12, alpha: 0.95)
+        ring.lineWidth = 5
+        ring.position = position
+        ring.zPosition = 7
+        addChild(ring)
+
+        ring.run(.sequence([
+            .group([
+                .scale(to: 1.25, duration: 0.24),
+                .fadeOut(withDuration: 0.24)
+            ]),
             .removeFromParent()
         ]))
     }

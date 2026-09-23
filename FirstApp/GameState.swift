@@ -17,6 +17,10 @@ enum GameLevel: Int, CaseIterable, Identifiable, Equatable {
 
     var id: Int { rawValue }
 
+    var nextLevel: GameLevel? {
+        GameLevel(rawValue: rawValue + 1)
+    }
+
     var title: String {
         switch self {
         case .frontier: "第一關・綠野前線"
@@ -46,6 +50,30 @@ enum GameLevel: Int, CaseIterable, Identifiable, Equatable {
         case .frontier: 3.5...5.5
         case .highlands: 2.8...4.2
         case .citadel: 2.2...3.5
+        }
+    }
+
+    var enemyCastleHealth: CGFloat {
+        switch self {
+        case .frontier: GameState.castleHealth
+        case .highlands: 1_200
+        case .citadel: 1_800
+        }
+    }
+
+    var enemyUnitHealthMultiplier: CGFloat {
+        switch self {
+        case .frontier: 1.0
+        case .highlands: 1.15
+        case .citadel: 1.35
+        }
+    }
+
+    var enemyUnitDamageMultiplier: CGFloat {
+        switch self {
+        case .frontier: 1.0
+        case .highlands: 1.10
+        case .citadel: 1.25
         }
     }
 
@@ -136,6 +164,14 @@ enum UnitType: String, CaseIterable, Identifiable {
         case .guardian: 30
         }
     }
+
+    var summonCooldown: TimeInterval {
+        switch self {
+        case .knight: 1.4
+        case .archer: 4.0
+        case .guardian: 4.8
+        }
+    }
 }
 
 enum MatchResult: Equatable {
@@ -163,20 +199,30 @@ final class GameState {
     // Castle Health cut in half for faster & balanced matches
     static let castleHealth: CGFloat = 800
     static let maximumEconomyLevel = 5
+    static let bossName = "魔王・黑角霸主"
+    static let bossMaxHealth: CGFloat = 8_400
 
     var selectedLevel: GameLevel = .frontier
     var playerMoney = 150
     var enemyMoney = 150
     var playerCastleHealth: CGFloat = castleHealth
     var enemyCastleHealth: CGFloat = castleHealth
+    var bossHealth: CGFloat = 0
+    var isBossActive = false
     var economyLevel = 1
     var isPaused = false
     var result: MatchResult?
+    var summonCooldowns: [UnitType: TimeInterval] = [:]
 
     private var playerIncomeRemainder = 0.0
     private var enemyIncomeRemainder = 0.0
 
     var isFinished: Bool { result != nil }
+
+    var bossHealthRatio: CGFloat {
+        guard isBossActive else { return 0 }
+        return bossHealth / Self.bossMaxHealth
+    }
 
     // Money generation rate doubled!
     var playerIncomeRate: Double {
@@ -199,17 +245,24 @@ final class GameState {
         playerMoney = 150
         enemyMoney = 150
         playerCastleHealth = Self.castleHealth
-        enemyCastleHealth = Self.castleHealth
+        enemyCastleHealth = level.enemyCastleHealth
+        bossHealth = 0
+        isBossActive = false
         economyLevel = 1
+        summonCooldowns = [:]
         playerIncomeRemainder = 0
         enemyIncomeRemainder = 0
         isPaused = false
         result = nil
     }
 
+    func summonCooldownRemaining(for type: UnitType) -> TimeInterval {
+        summonCooldowns[type] ?? 0
+    }
+
     func canSummon(_ type: UnitType, for faction: Faction) -> Bool {
         switch faction {
-        case .player: playerMoney >= type.cost
+        case .player: playerMoney >= type.cost && summonCooldownRemaining(for: type) == 0
         case .enemy: enemyMoney >= type.cost
         }
     }
@@ -218,7 +271,9 @@ final class GameState {
         guard canSummon(type, for: faction) else { return false }
 
         switch faction {
-        case .player: playerMoney -= type.cost
+        case .player:
+            playerMoney -= type.cost
+            summonCooldowns[type] = type.summonCooldown
         case .enemy: enemyMoney -= type.cost
         }
         return true
@@ -231,6 +286,32 @@ final class GameState {
         playerMoney -= cost
         economyLevel += 1
         return true
+    }
+
+    func tickSummonCooldowns(seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+
+        for (type, remaining) in summonCooldowns {
+            let newRemaining = max(0, remaining - seconds)
+            if newRemaining == 0 {
+                summonCooldowns[type] = nil
+            } else {
+                summonCooldowns[type] = newRemaining
+            }
+        }
+    }
+
+    func activateBoss() {
+        bossHealth = Self.bossMaxHealth
+        isBossActive = true
+    }
+
+    func damageBoss(amount: CGFloat) {
+        guard isBossActive, !isFinished else { return }
+        bossHealth = max(0, bossHealth - amount)
+        if bossHealth == 0 {
+            isBossActive = false
+        }
     }
 
     func addIncome(seconds: TimeInterval) {

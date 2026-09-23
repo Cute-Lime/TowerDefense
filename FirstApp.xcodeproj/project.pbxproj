@@ -6,8 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8EF345E13060B6E300C68E06 /* Screenshot.png in Resources */ = {isa = PBXBuildFile; fileRef = 8EF345E03060B6E300C68E06 /* Screenshot.png */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
-		8EB5D68D30567D8700DD8EBE /* FirstApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FirstApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EB5D68D30567D8700DD8EBE /* FirstApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = FirstApp.app; path = "/Users/linyanyu/Desktop/FirstApp/build/Debug-iphoneos/FirstApp.app"; sourceTree = "<absolute>"; };
+		8EF345DA3060B52500C68E06 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		8EF345E03060B6E300C68E06 /* Screenshot.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Screenshot.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,16 +39,9 @@
 			isa = PBXGroup;
 			children = (
 				8EB5D68F30567D8700DD8EBE /* FirstApp */,
-				8EB5D68E30567D8700DD8EBE /* Products */,
+				8EF345DA3060B52500C68E06 /* README.md */,
+				8EF345E03060B6E300C68E06 /* Screenshot.png */,
 			);
-			sourceTree = "<group>";
-		};
-		8EB5D68E30567D8700DD8EBE /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				8EB5D68D30567D8700DD8EBE /* FirstApp.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -95,7 +94,7 @@
 			mainGroup = 8EB5D68430567D8700DD8EBE;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 8EB5D68E30567D8700DD8EBE /* Products */;
+			productRefGroup = 8EB5D68430567D8700DD8EBE;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -109,6 +108,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8EF345E13060B6E300C68E06 /* Screenshot.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
